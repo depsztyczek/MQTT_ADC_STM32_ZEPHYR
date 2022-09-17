@@ -317,7 +317,7 @@ static int publisher(void)
 	return r;
 }
 
-static int start_app(void)
+static int mqtt_communication(void)
 {
 	int r = 0, i = 0;
 
@@ -333,7 +333,5 @@ static int start_app(void)
 	return r;
 }
 
-void main(void)
-{
-	exit(start_app());
-}
+K_THREAD_DEFINE(mqtt_thread, STACK_SIZE, mqtt_communication, NULL, NULL, NULL,
+		MQTT_PRIORITY, 0, 0);
