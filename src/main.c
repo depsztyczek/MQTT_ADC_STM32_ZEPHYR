@@ -8,6 +8,7 @@
 LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 
 #include <zephyr.h>
+#include <drivers/adc.h>
 #include <net/socket.h>
 #include <net/mqtt.h>
 #include <random/rand32.h>
@@ -16,6 +17,8 @@ LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 #include <errno.h>
 
 #include "config.h"
+
+#define ADC_NODE		DT_NODELABEL(adc1)
 
 #define APP_BMEM
 #define APP_DMEM
@@ -333,5 +336,19 @@ static int mqtt_communication(void)
 	return r;
 }
 
+static int adc_acquisition(void)
+{
+	const struct device *dev_adc = DEVICE_DT_GET(ADC_NODE);
+
+	if (!device_is_ready(dev_adc)) {
+		LOG_ERR("ADC device not found\n");
+	}
+	adc_channel_setup(dev_adc, &channel_cfg);
+
+	return 0;
+}
+
 K_THREAD_DEFINE(mqtt_thread, STACK_SIZE, mqtt_communication, NULL, NULL, NULL,
 		MQTT_PRIORITY, 0, 0);
+K_THREAD_DEFINE(adc_thread, STACK_SIZE, adc_acquisition, NULL, NULL, NULL,
+		ADC_PRIORITY, 0, 0);
