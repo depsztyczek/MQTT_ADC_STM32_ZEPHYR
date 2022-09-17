@@ -339,11 +339,44 @@ static int mqtt_communication(void)
 static int adc_acquisition(void)
 {
 	const struct device *dev_adc = DEVICE_DT_GET(ADC_NODE);
+	uint16_t sample_buffer[16];
+	struct adc_channel_cfg channel_cfg = {
+		.gain = ADC_GAIN,
+		.reference = ADC_REFERENCE,
+		.acquisition_time = ADC_ACQUISITION_TIME,
+		.channel_id = 0,
+		.differential = 0
+	};
+	struct adc_sequence sequence = {
+		/* individual channels will be added below */
+		.channels    = 1,
+		.buffer      = sample_buffer,
+		/* buffer size in bytes, not number of samples */
+		.buffer_size = sizeof(sample_buffer),
+		.resolution  = ADC_RESOLUTION,
+	};
 
 	if (!device_is_ready(dev_adc)) {
 		LOG_ERR("ADC device not found\n");
 	}
+
 	adc_channel_setup(dev_adc, &channel_cfg);
+	int32_t adc_vref = adc_ref_internal(dev_adc);
+	while (1)
+	{
+		int err;
+		err = adc_read(dev_adc, &sequence); 
+		if (err != 0) {
+			LOG_ERR("ADC reading failed with error %d.\n", err);
+			return 0;
+		}
+		adc_raw_to_millivolts(adc_vref, ADC_GAIN,
+							  ADC_RESOLUTION, sample_buffer);
+		LOG_INF("ADC read returned %d mV\n", sample_buffer[0]);
+		k_sleep(K_SECONDS(ACQ_TIME_INTERVAL_S));
+		
+	}
+
 
 	return 0;
 }
