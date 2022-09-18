@@ -18,10 +18,16 @@ LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 
 #include "config.h"
 
-#define ADC_NODE		DT_NODELABEL(adc1)
+#define ADC_NODE	DT_NODELABEL(adc1)
 
 #define APP_BMEM
 #define APP_DMEM
+
+K_FIFO_DEFINE(adc_fifo);
+struct adc_data_t {
+	void 	*fifo_reserved;
+	int32_t data[2];
+};
 
 /* Buffers for MQTT client. */
 static APP_BMEM uint8_t rx_buffer[APP_MQTT_BUFFER_SIZE];
@@ -143,9 +149,24 @@ void mqtt_evt_handler(struct mqtt_client *const client,
 
 static char *get_mqtt_payload(enum mqtt_qos qos)
 {
-	static APP_DMEM char payload[] = "DOORS:OPEN_QoSx";
+	static APP_DMEM char payload[35];
+	struct adc_data_t *adc_data;
+	
+	adc_data = k_fifo_get(&adc_fifo, K_FOREVER);
 
-	payload[strlen(payload) - 1] = '0' + qos;
+	if (adc_data != NULL)
+	{
+		snprintk(payload, sizeof(payload), "ADC read is %d mV", adc_data->data[0]);
+		k_free(adc_data);
+	}
+	else if (k_fifo_is_empty(&adc_fifo))
+	{
+		snprintk(payload, sizeof(payload), "Fifo is empty");
+	}
+	else
+	{
+		snprintk(payload, sizeof(payload), "Failed to get ADC read from FIFO");
+	}
 
 	return payload;
 }
@@ -336,23 +357,24 @@ static int mqtt_communication(void)
 	return r;
 }
 
+
+
 static int adc_acquisition(void)
 {
 	const struct device *dev_adc = DEVICE_DT_GET(ADC_NODE);
-	uint16_t sample_buffer[16];
+	struct adc_data_t *adc_data;
+
 	struct adc_channel_cfg channel_cfg = {
-		.gain = ADC_GAIN,
-		.reference = ADC_REFERENCE,
+		.gain             = ADC_GAIN,
+		.reference        = ADC_REFERENCE,
 		.acquisition_time = ADC_ACQUISITION_TIME,
-		.channel_id = 0,
-		.differential = 0
+		.channel_id 	  = 0,
+		.differential 	  = 0
 	};
 	struct adc_sequence sequence = {
-		/* individual channels will be added below */
-		.channels    = 1,
-		.buffer      = sample_buffer,
-		/* buffer size in bytes, not number of samples */
-		.buffer_size = sizeof(sample_buffer),
+		.channels    = 1, // Bit-mask containing selected channels
+		.buffer      = adc_data->data,
+		.buffer_size = sizeof(adc_data->data),
 		.resolution  = ADC_RESOLUTION,
 	};
 
@@ -365,14 +387,24 @@ static int adc_acquisition(void)
 	while (1)
 	{
 		int err;
+
 		err = adc_read(dev_adc, &sequence); 
 		if (err != 0) {
 			LOG_ERR("ADC reading failed with error %d.\n", err);
 			return 0;
 		}
+		LOG_DBG("Raw data is %d",adc_data->data[0]);
 		adc_raw_to_millivolts(adc_vref, ADC_GAIN,
-							  ADC_RESOLUTION, sample_buffer);
-		LOG_INF("ADC read returned %d mV\n", sample_buffer[0]);
+							  ADC_RESOLUTION, &adc_data->data[0]);
+		LOG_DBG("Data in mV is %d",adc_data->data[0]);
+
+		// Put data into fifo - it requires allocating memory and freeing it after receiving
+		size_t size = sizeof(struct adc_data_t);
+		char *mem_ptr = k_malloc(size);
+		__ASSERT_NO_MSG(mem_ptr != 0);
+		memcpy(mem_ptr, adc_data, size);
+		k_fifo_put(&adc_fifo, mem_ptr);
+
 		k_sleep(K_SECONDS(ACQ_TIME_INTERVAL_S));
 		
 	}
