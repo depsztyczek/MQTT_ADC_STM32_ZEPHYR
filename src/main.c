@@ -23,6 +23,7 @@ LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 #define APP_BMEM
 #define APP_DMEM
 
+K_SEM_DEFINE(semaphore, 0, 1)
 K_FIFO_DEFINE(adc_fifo);
 struct adc_data_t {
 	void 	*fifo_reserved;
@@ -347,10 +348,12 @@ static int mqtt_communication(void)
 
 	while (!CONFIG_NET_SAMPLE_APP_MAX_CONNECTIONS ||
 	       i++ < CONFIG_NET_SAMPLE_APP_MAX_CONNECTIONS) {
+		k_sem_take(&semaphore, K_FOREVER);
 		r = publisher();
+		
 
 		if (!CONFIG_NET_SAMPLE_APP_MAX_CONNECTIONS) {
-			k_sleep(K_MSEC(5000));
+			k_sleep(K_FOREVER);
 		}
 	}
 
@@ -404,9 +407,8 @@ static int adc_acquisition(void)
 		__ASSERT_NO_MSG(mem_ptr != 0);
 		memcpy(mem_ptr, adc_data, size);
 		k_fifo_put(&adc_fifo, mem_ptr);
-
 		k_sleep(K_SECONDS(ACQ_TIME_INTERVAL_S));
-		
+		k_sem_give(&semaphore);
 	}
 
 
